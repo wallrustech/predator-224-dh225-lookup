@@ -87,7 +87,9 @@ async function getParts(url) {
   if (store==='amazon'||store==='all') {
     try {
       if(q) parts=parts.concat(await searchAmazon(q));
-      else parts=parts.concat(fallbackAmazon('VM22 carburetor Predator 224 225'));
+      else if(process.env.AMAZON_CREATOR_CLIENT_ID && process.env.AMAZON_CREATOR_CLIENT_SECRET && process.env.AMAZON_PARTNER_TAG) {
+        for (const term of ['VM22 carburetor Predator 224 225','Predator 224 performance parts','Predator 224 flywheel connecting rod']) parts=parts.concat(await searchAmazon(term));
+      } else parts=parts.concat(fallbackAmazon('VM22 carburetor Predator 224 225'));
     } catch (e) {
       console.error(e.message);
       parts=parts.concat(fallbackAmazon(q||'VM22 carburetor Predator 224 225'));
