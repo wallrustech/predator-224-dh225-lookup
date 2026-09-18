@@ -1,0 +1,12 @@
+{
+  "name": "predator-224-dh225-lookup",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --check server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
