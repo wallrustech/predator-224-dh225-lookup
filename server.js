@@ -105,8 +105,9 @@ async function getParts(url) {
   let parts=[...GOPWER];
   if (store==='amazon'||store==='all') {
     try {
-      if(q) parts=parts.concat(await searchAmazon(q));
-      else if(process.env.AMAZON_CREATOR_CLIENT_ID && process.env.AMAZON_CREATOR_CLIENT_SECRET && process.env.AMAZON_PARTNER_TAG) {
+      const amazonConfigured = Boolean(process.env.AMAZON_CREATOR_CLIENT_ID && process.env.AMAZON_CREATOR_CLIENT_SECRET && process.env.AMAZON_PARTNER_TAG);
+      if(q && amazonConfigured) parts=parts.concat(await searchAmazon(q));
+      else if(!q && amazonConfigured) {
         for (const term of ['VM22 carburetor Predator 224 225','Predator 224 performance parts','Predator 224 flywheel connecting rod']) parts=parts.concat(await searchAmazon(term));
       } else parts=parts.concat(fallbackAmazon('VM22 carburetor Predator 224 225'));
     } catch (e) {
@@ -130,7 +131,7 @@ const server=http.createServer(async (req,res)=>{
     const url=new URL(req.url,'http://localhost');
     if(url.pathname==='/api/health') return send(res,200,{ok:true,service:'predator-224-parts-library',amazonConfigured:Boolean(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)});
     if(url.pathname==='/api/parts') return send(res,200,{source:'server',parts:await getParts(url)});
-    if(url.pathname==='/api/providers') return send(res,200,{providers:{GoPowerSports:{enabled:true,mode:'verified-catalog'},Amazon:{enabled:true,mode:process.env.AMAZON_CREATOR_CLIENT_ID?'creators-api':'search-fallback'}}});
+    if(url.pathname==='/api/providers') return send(res,200,{providers:{GoPowerSports:{enabled:true,mode:'verified-catalog'},Amazon:{enabled:true,mode:(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)?'creators-api':'search-fallback'}}});
     let file=url.pathname==='/'?'/index.html':url.pathname;
     const safe=path.normalize(file).replace(/^([.][.][/\\])+/, '');
     const full=path.join(ROOT,safe);
