@@ -39,8 +39,6 @@ $('#wishTotal').textContent=total.toFixed(2);
 box.querySelectorAll('[data-qty]').forEach(x=>x.onchange=()=>{const nw=getWish(),i=nw.find(z=>z.id===x.dataset.qty);if(i)i.qty=Math.max(1,parseInt(x.value||1,10));saveWish(nw)});
 box.querySelectorAll('[data-remove]').forEach(x=>x.onclick=()=>saveWish(getWish().filter(i=>i.id!==x.dataset.remove)));
 }
-['partCategory','partStore'].forEach(id=>$('#'+id).addEventListener('change',renderParts));
-$('#partSearch').addEventListener('input',renderParts);
 $('#clearWishlist').onclick=()=>saveWish([]);
 $('#refreshParts').onclick=cycleParts;
 ['partCategory','partStore'].forEach(id=>$('#'+id).addEventListener('change',()=>renderParts(true)));
