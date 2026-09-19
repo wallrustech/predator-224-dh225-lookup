@@ -135,7 +135,11 @@ function parseNrProducts(html) {
     const imgMatch=windowText.match(/<img[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>/i);
     const img=imgMatch?absoluteUrl(imgMatch[1]):'';
     const id='nr-'+Buffer.from(url).toString('base64url').slice(0,32);
-    if (!found.has(url)) found.set(url,{id,name,category:'NR Racing',store:'NR Racing',price,note:'Live NR Racing catalog result. Verify Predator 224 fitment, dimensions and application before ordering.',url,img,fit:'verify',source:'nr-racing'});
+    if (!found.has(url)) {
+      const product={id,name,category:'NR Racing',store:'NR Racing',price,note:'Live NR Racing catalog result. Verify Predator 224 fitment, dimensions and application before ordering.',url,img,fit:'verify',source:'nr-racing'};
+      found.set(url,product);
+      nrLiveProducts.set(id,product);
+    }
   }
   return [...found.values()];
 }
@@ -177,6 +181,7 @@ async function getParts(url) {
 }
 
 const imageCache = new Map();
+const nrLiveProducts = new Map();
 
 async function getCurrentProductImage(part) {
   const cached = imageCache.get(part.id);
@@ -230,14 +235,14 @@ const server=http.createServer(async (req,res)=>{
     if(url.pathname==='/api/providers') return send(res,200,{providers:{GoPowerSports:{enabled:true,mode:'verified-catalog'},NRRacing:{enabled:true,mode:'live-public-search'},Amazon:{enabled:true,mode:(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)?'creators-api':'search-fallback'}}});
     if(url.pathname==='/api/part-image') {
       const id=url.searchParams.get('id')||'';
-      const part=GOPWER.find(p=>p.id===id);
+      const part=GOPWER.find(p=>p.id===id) || nrLiveProducts.get(id);
       if(!part) return send(res,404,'Image not found','text/plain');
       let image=null;
       if(part.store==='GoPowerSports' && part.url) image=await getCurrentProductImage(part);
       else if(part.img) {
         try {
           const u=new URL(part.img);
-          const allowed=['www.gopowersports.com','gopowersports.com','images-na.ssl-images-amazon.com','m.media-amazon.com','images.amazon.com'];
+          const allowed=['www.gopowersports.com','gopowersports.com','images-na.ssl-images-amazon.com','m.media-amazon.com','images.amazon.com','www.nrracing.com','nrracing.com'];
           if(!allowed.includes(u.hostname)) return send(res,403,'Image host not allowed','text/plain');
           const r=await fetch(u,{headers:{'User-Agent':'Mozilla/5.0 Predator224Lookup/2.0'}});
           if(r.ok) image={body:Buffer.from(await r.arrayBuffer()),type:r.headers.get('content-type')||'image/jpeg'};
