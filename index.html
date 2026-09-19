@@ -7,7 +7,9 @@ async function loadParts(reset=true){
     if(reset){partPage=1;partHasMore=true;PARTS=[];$('#partGrid').innerHTML='<p class="muted">Loading live catalog...</p>';}
     const store=$('#partStore').value.toLowerCase();
     const category=$('#partCategory').value;
-    const q=$('#partSearch').value.trim()||'224 Predator';
+    const typed=$('#partSearch').value.trim();
+    const categoryTerms={carburetion:'Predator 224 carburetor',intake:'Predator 224 intake manifold',performance:'Predator 224 performance',controls:'mini bike throttle handlebar',lighting:'mini bike lighting',gauges:'mini bike gauge tachometer',seating:'mini bike seat',chassis:'mini bike chassis frame',brakes:'mini bike brake',drivetrain:'torque converter clutch chain',wheels:'mini bike wheel tire',fuel:'fuel tank fuel line',service:'Predator 224 spark plug service'};
+    const q=typed||(categoryTerms[category]||'224 Predator');
     partQuery=q;
     const r=await fetch('/api/parts?store='+encodeURIComponent(store)+'&q='+encodeURIComponent(q)+'&page='+partPage);
     if(!r.ok) throw new Error('API '+r.status);
@@ -34,7 +36,7 @@ function renderParts(reset=true){
   if(reset) g.innerHTML='';
   const existing=new Set([...g.querySelectorAll('[data-part-id]')].map(x=>x.dataset.partId));
   const next=filtered.filter(p=>!existing.has(p.id));
-  if(reset&&next.length===0){g.innerHTML='<p class="muted">No live catalog items match this search.</p>'}
+  if(reset&&next.length===0){g.innerHTML='<p class="muted">No live catalog items match this search yet. Try a broader search term or another store.</p>'}
   if(next.length){
     const existing=new Set([...g.querySelectorAll('[data-part-id]')].map(x=>x.dataset.partId));
     g.insertAdjacentHTML('beforeend',next.filter(p=>!existing.has(p.id)).map(p=>'<div class="part-card" data-part-id="'+p.id+'">'+(p.img||p.store==='GoPowerSports'&&p.url?'<img class="part-img" src="/api/part-image?id='+encodeURIComponent(p.id)+'" alt="'+p.name+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="part-placeholder" style="display:none">Product image unavailable</div>':'<div class="part-placeholder">Product image unavailable</div>')+'<h3>'+p.name+'</h3><div class="price">'+(p.price?'$'+Number(p.price).toFixed(2):'See store')+'</div><div class="meta">'+p.store+' · '+p.category+'</div><p class="fit '+(p.fit==='verify'?'':'confirmed')+'">'+(p.fit==='verify'?'⚠ Verify Predator 224 fitment before ordering.':'✓ Confirmed-compatible catalog entry')+'</p><p>'+p.note+'</p><a class="storelink" href="'+shopUrl(p)+'" target="_blank" rel="noopener">View at '+p.store+'</a> <button data-add="'+p.id+'">Add to wishlist</button></div>').join(''));
