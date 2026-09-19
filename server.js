@@ -176,8 +176,18 @@ const server=http.createServer(async (req,res)=>{
     if(url.pathname==='/api/part-image') {
       const id=url.searchParams.get('id')||'';
       const part=GOPWER.find(p=>p.id===id);
-      if(!part || part.store!=='GoPowerSports' || !part.url) return send(res,404,'Image not found','text/plain');
-      const image=await getCurrentProductImage(part);
+      if(!part) return send(res,404,'Image not found','text/plain');
+      let image=null;
+      if(part.store==='GoPowerSports' && part.url) image=await getCurrentProductImage(part);
+      else if(part.img) {
+        try {
+          const u=new URL(part.img);
+          const allowed=['www.gopowersports.com','gopowersports.com','images-na.ssl-images-amazon.com','m.media-amazon.com','images.amazon.com'];
+          if(!allowed.includes(u.hostname)) return send(res,403,'Image host not allowed','text/plain');
+          const r=await fetch(u,{headers:{'User-Agent':'Mozilla/5.0 Predator224Lookup/2.0'}});
+          if(r.ok) image={body:Buffer.from(await r.arrayBuffer()),type:r.headers.get('content-type')||'image/jpeg'};
+        } catch(e) { console.error('Image proxy failed:',id,e.message); }
+      }
       if(!image) return send(res,404,'Image unavailable','text/plain');
       res.writeHead(200,{'Content-Type':image.type,'Cache-Control':'public, max-age=21600'});
       return res.end(image.body);
