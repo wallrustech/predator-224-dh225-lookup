@@ -103,11 +103,11 @@ function decodeHtml(s) {
   return s
     .replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'")
     .replace(/&nbsp;/gi,' ').replace(/&ndash;/gi,'-').replace(/&mdash;/gi,'—')
-    .replace(/&#(\\d+);/g,(_,n)=>String.fromCharCode(Number(n)));
+    .replace(/&#(\d+);/g,(_,n)=>String.fromCharCode(Number(n)));
 }
 
 function stripTags(s) {
-  return decodeHtml((s||'').replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim());
+  return decodeHtml((s||'').replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim());
 }
 
 function absoluteUrl(href, base='https://www.nrracing.com/') {
@@ -116,21 +116,21 @@ function absoluteUrl(href, base='https://www.nrracing.com/') {
 
 function parseNrProducts(html) {
   const found = new Map();
-  const linkRe = /<a\\b[^>]*href=["']([^"']+\\-p\\/[^"']+\\.htm(?:\\?[^"']*)?)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+  const linkRe = /<a\b[^>]*href=["']([^"']+\-p\/[^"']+\.htm(?:\?[^"']*)?)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m;
   while ((m=linkRe.exec(html))) {
     const url=absoluteUrl(m[1]);
-    if (!/nrracing\\.com\\//i.test(url)) continue;
+    if (!/nrracing\.com\//i.test(url)) continue;
     const hrefText=stripTags(m[2]);
     const windowText=html.slice(Math.max(0,m.index-500),Math.min(html.length,m.index+2500));
-    const titleAttr=(m[0].match(/\\btitle=["']([^"']+)["']/i)||[])[1]||'';
+    const titleAttr=(m[0].match(/\btitle=["']([^"']+)["']/i)||[])[1]||'';
     let name=stripTags(titleAttr)||hrefText;
     if (!name || name.length<3 || /^(image|view|details|add to cart)$/i.test(name)) {
-      const slug=(m[1].split('/').pop()||'').replace(/\\.htm.*$/i,'').replace(/-p$/i,'');
-      name=decodeURIComponent(slug).replace(/[-_]+/g,' ').replace(/\\b\\w/g,ch=>ch.toUpperCase());
+      const slug=(m[1].split('/').pop()||'').replace(/\.htm.*$/i,'').replace(/-p$/i,'');
+      name=decodeURIComponent(slug).replace(/[-_]+/g,' ').replace(/\b\w/g,ch=>ch.toUpperCase());
     }
-    const priceMatch=windowText.match(/(?:Our Price|Price)\\s*:\\s*(?:<[^>]*>\\s*)*\\$\\s*([0-9,]+(?:\\.[0-9]{2})?)/i)
-      || windowText.match(/\\$\\s*([0-9,]+(?:\\.[0-9]{2})?)/);
+    const priceMatch=windowText.match(/(?:Our Price|Price)\s*:\s*(?:<[^>]*>\s*)*\$\s*([0-9,]+(?:\.[0-9]{2})?)/i)
+      || windowText.match(/\$\s*([0-9,]+(?:\.[0-9]{2})?)/);
     const price=priceMatch?Number(priceMatch[1].replace(/,/g,'')):0;
     const imgMatch=windowText.match(/<img[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>/i);
     const img=imgMatch?absoluteUrl(imgMatch[1]):'';
