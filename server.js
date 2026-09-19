@@ -99,26 +99,81 @@ function fallbackAmazon(keywords) {
   }];
 }
 
+function decodeHtml(s) {
+  return s
+    .replace(/&amp;/gi,'&').replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'")
+    .replace(/&nbsp;/gi,' ').replace(/&ndash;/gi,'-').replace(/&mdash;/gi,'—')
+    .replace(/&#(\\d+);/g,(_,n)=>String.fromCharCode(Number(n)));
+}
+
+function stripTags(s) {
+  return decodeHtml((s||'').replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim());
+}
+
+function absoluteUrl(href, base='https://www.nrracing.com/') {
+  try { return new URL(href, base).href; } catch { return href; }
+}
+
+function parseNrProducts(html) {
+  const found = new Map();
+  const linkRe = /<a\\b[^>]*href=["']([^"']+\\-p\\/[^"']+\\.htm(?:\\?[^"']*)?)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+  let m;
+  while ((m=linkRe.exec(html))) {
+    const url=absoluteUrl(m[1]);
+    if (!/nrracing\\.com\\//i.test(url)) continue;
+    const hrefText=stripTags(m[2]);
+    const windowText=html.slice(Math.max(0,m.index-500),Math.min(html.length,m.index+2500));
+    const titleAttr=(m[0].match(/\\btitle=["']([^"']+)["']/i)||[])[1]||'';
+    let name=stripTags(titleAttr)||hrefText;
+    if (!name || name.length<3 || /^(image|view|details|add to cart)$/i.test(name)) {
+      const slug=(m[1].split('/').pop()||'').replace(/\\.htm.*$/i,'').replace(/-p$/i,'');
+      name=decodeURIComponent(slug).replace(/[-_]+/g,' ').replace(/\\b\\w/g,ch=>ch.toUpperCase());
+    }
+    const priceMatch=windowText.match(/(?:Our Price|Price)\\s*:\\s*(?:<[^>]*>\\s*)*\\$\\s*([0-9,]+(?:\\.[0-9]{2})?)/i)
+      || windowText.match(/\\$\\s*([0-9,]+(?:\\.[0-9]{2})?)/);
+    const price=priceMatch?Number(priceMatch[1].replace(/,/g,'')):0;
+    const imgMatch=windowText.match(/<img[^>]+(?:src|data-src)=["']([^"']+)["'][^>]*>/i);
+    const img=imgMatch?absoluteUrl(imgMatch[1]):'';
+    const id='nr-'+Buffer.from(url).toString('base64url').slice(0,32);
+    if (!found.has(url)) found.set(url,{id,name,category:'NR Racing',store:'NR Racing',price,note:'Live NR Racing catalog result. Verify Predator 224 fitment, dimensions and application before ordering.',url,img,fit:'verify',source:'nr-racing'});
+  }
+  return [...found.values()];
+}
+
+async function searchNrRacing(keywords,page=1) {
+  const params=new URLSearchParams({Search:keywords,searching:'Y',show:'100',sort:'7',page:String(page)});
+  const target='https://www.nrracing.com/searchresults.asp?'+params.toString();
+  const r=await fetch(target,{headers:{'User-Agent':'Mozilla/5.0 Predator224Lookup/2.0','Accept':'text/html,application/xhtml+xml'}});
+  if(!r.ok) throw new Error('NR Racing search failed: '+r.status);
+  const html=await r.text();
+  const parts=parseNrProducts(html);
+  return {parts,page,hasMore:parts.length>0};
+}
+
 async function getParts(url) {
-  const q=(url.searchParams.get('q')||'').trim().toLowerCase();
+  const q=(url.searchParams.get('q')||'224 Predator').trim();
   const store=(url.searchParams.get('store')||'all').toLowerCase();
-  let parts=[...GOPWER];
-  if (store==='amazon'||store==='all') {
+  const page=Math.max(1,Number(url.searchParams.get('page')||1));
+  const parts=[];
+  let nextPage=null;
+  if (store==='nrracing'||store==='all') {
     try {
-      const amazonConfigured = Boolean(process.env.AMAZON_CREATOR_CLIENT_ID && process.env.AMAZON_CREATOR_CLIENT_SECRET && process.env.AMAZON_PARTNER_TAG);
-      if(q && amazonConfigured) parts=parts.concat(await searchAmazon(q));
-      else if(!q && amazonConfigured) {
-        for (const term of ['VM22 carburetor Predator 224 225','Predator 224 performance parts','Predator 224 flywheel connecting rod']) parts=parts.concat(await searchAmazon(term));
-      } else parts=parts.concat(fallbackAmazon('VM22 carburetor Predator 224 225'));
-    } catch (e) {
-      console.error(e.message);
-      parts=parts.concat(fallbackAmazon(q||'VM22 carburetor Predator 224 225'));
+      const nr=await searchNrRacing(q,page);
+      parts.push(...nr.parts);
+      if(nr.hasMore) nextPage=page+1;
+    } catch(e) {
+      console.error('NR Racing:',e.message);
     }
   }
-  if(q) parts=parts.filter(p=>(p.name+' '+p.category+' '+p.note).toLowerCase().includes(q) || p.store.toLowerCase().includes(q));
-  if(store==='gopowersports') parts=parts.filter(p=>p.store==='GoPowerSports');
-  if(store==='amazon') parts=parts.filter(p=>p.store==='Amazon');
-  return parts;
+  if (page===1 && (store==='gopowersports'||store==='all')) {
+    let gps=[...GOPWER];
+    if(q) {
+      const lq=q.toLowerCase();
+      gps=gps.filter(p=>(p.name+' '+p.category+' '+p.note).toLowerCase().includes(lq));
+    }
+    parts.push(...gps);
+  }
+  return {parts,nextPage,query:q,live:store==='nrracing'||store==='all'};
 }
 
 const imageCache = new Map();
@@ -171,8 +226,8 @@ const server=http.createServer(async (req,res)=>{
   try {
     const url=new URL(req.url,'http://localhost');
     if(url.pathname==='/api/health') return send(res,200,{ok:true,service:'predator-224-parts-library',amazonConfigured:Boolean(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)});
-    if(url.pathname==='/api/parts') return send(res,200,{source:'server',parts:await getParts(url)});
-    if(url.pathname==='/api/providers') return send(res,200,{providers:{GoPowerSports:{enabled:true,mode:'verified-catalog'},Amazon:{enabled:true,mode:(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)?'creators-api':'search-fallback'}}});
+    if(url.pathname==='/api/parts') return send(res,200,{source:'server',...(await getParts(url))});
+    if(url.pathname==='/api/providers') return send(res,200,{providers:{GoPowerSports:{enabled:true,mode:'verified-catalog'},NRRacing:{enabled:true,mode:'live-public-search'},Amazon:{enabled:true,mode:(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)?'creators-api':'search-fallback'}}});
     if(url.pathname==='/api/part-image') {
       const id=url.searchParams.get('id')||'';
       const part=GOPWER.find(p=>p.id===id);
