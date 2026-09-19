@@ -121,6 +121,47 @@ async function getParts(url) {
   return parts;
 }
 
+const imageCache = new Map();
+
+async function getCurrentProductImage(part) {
+  const cached = imageCache.get(part.id);
+  if (cached && cached.expires > Date.now()) return cached;
+
+  let imageUrl = '';
+  try {
+    const page = await fetch(part.url, {headers:{'User-Agent':'Mozilla/5.0 Predator224Lookup/2.0'}});
+    if (page.ok) {
+      const html = await page.text();
+      const m1 = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["'][^>]*>/i);
+      const m2 = html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["'][^>]*>/i);
+      imageUrl = (m1?.[1] || m2?.[1] || '').replace(/&amp;/g,'&');
+      if (imageUrl.startsWith('//')) imageUrl = 'https:'+imageUrl;
+      if (imageUrl.startsWith('/')) imageUrl = new URL(imageUrl, part.url).href;
+    }
+  } catch (e) {
+    console.error('Product image lookup failed:', part.id, e.message);
+  }
+
+  if (!imageUrl) imageUrl = part.img || '';
+  if (!imageUrl) return null;
+
+  try {
+    const image = await fetch(imageUrl, {headers:{'User-Agent':'Mozilla/5.0 Predator224Lookup/2.0'}});
+    if (!image.ok) throw new Error('image '+image.status);
+    const body = Buffer.from(await image.arrayBuffer());
+    const result = {
+      body,
+      type: image.headers.get('content-type') || 'image/jpeg',
+      expires: Date.now()+6*60*60*1000
+    };
+    imageCache.set(part.id, result);
+    return result;
+  } catch (e) {
+    console.error('Product image fetch failed:', part.id, e.message);
+    return null;
+  }
+}
+
 function send(res,status,data,type='application/json') {
   res.writeHead(status,{'Content-Type':type,'Cache-Control':'no-store'});
   res.end(type==='application/json'?JSON.stringify(data):data);
@@ -132,6 +173,15 @@ const server=http.createServer(async (req,res)=>{
     if(url.pathname==='/api/health') return send(res,200,{ok:true,service:'predator-224-parts-library',amazonConfigured:Boolean(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)});
     if(url.pathname==='/api/parts') return send(res,200,{source:'server',parts:await getParts(url)});
     if(url.pathname==='/api/providers') return send(res,200,{providers:{GoPowerSports:{enabled:true,mode:'verified-catalog'},Amazon:{enabled:true,mode:(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)?'creators-api':'search-fallback'}}});
+    if(url.pathname==='/api/part-image') {
+      const id=url.searchParams.get('id')||'';
+      const part=GOPWER.find(p=>p.id===id);
+      if(!part || part.store!=='GoPowerSports' || !part.url) return send(res,404,'Image not found','text/plain');
+      const image=await getCurrentProductImage(part);
+      if(!image) return send(res,404,'Image unavailable','text/plain');
+      res.writeHead(200,{'Content-Type':image.type,'Cache-Control':'public, max-age=21600'});
+      return res.end(image.body);
+    }
     let file=url.pathname==='/'?'/index.html':url.pathname;
     const safe=path.normalize(file).replace(/^([.][.][/\\])+/, '');
     const full=path.join(ROOT,safe);
