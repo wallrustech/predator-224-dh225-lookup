@@ -154,34 +154,56 @@ async function searchNrRacing(keywords,page=1) {
   return {parts,page,hasMore:parts.length>0};
 }
 
+function parseGoPowerProducts(html) {
+  const found = new Map();
+  const anchorRe = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  const excluded = /\/(?:brands|categories|search-results|cart|account|contact|about|blog|help|gps-parts-breakdowns|engines-engine-parts|go-kart|go-kart-parts|minibike|minibike-parts|collections|pages|videos)(?:\/|$)/i;
+  let m;
+  while ((m=anchorRe.exec(html))) {
+    const url=absoluteUrl(m[1],'https://www.gopowersports.com/');
+    let parsed; try { parsed=new URL(url); } catch { continue; }
+    if (!/^(www\.)?gopowersports\.com$/i.test(parsed.hostname) || excluded.test(parsed.pathname)) continue;
+    const windowText=html.slice(Math.max(0,m.index-900),Math.min(html.length,m.index+3200));
+    const priceMatch=windowText.match(/(?:Sale Price|Retail Price|Price)\s*:?\s*(?:<[^>]*>\s*)*\$\s*([0-9,]+(?:\.[0-9]{2})?)/i) || windowText.match(/\$\s*([0-9,]+(?:\.[0-9]{2})?)/);
+    if (!priceMatch) continue;
+    const titleAttr=(m[0].match(/\b(?:title|aria-label)=["']([^"']+)["']/i)||[])[1]||'';
+    const name=stripTags(titleAttr)||stripTags(m[2]);
+    if (!name || name.length<3 || /^(add to cart|quick view|view product|details)$/i.test(name)) continue;
+    const imgMatch=windowText.match(/<img[^>]+(?:src|data-src|data-srcset)=["']([^"']+)["'][^>]*>/i);
+    const img=imgMatch?absoluteUrl(imgMatch[1].split(',')[0].trim().split(/\s+/)[0]):'';
+    const id='gps-live-'+Buffer.from(url).toString('base64url').slice(0,32);
+    if(!found.has(url)){const product={id,name,category:'GoPowerSports',store:'GoPowerSports',price:Number(priceMatch[1].replace(/,/g,'')),note:'Live GoPowerSports catalog result. Verify Predator 224 fitment, dimensions and application before ordering.',url,img,fit:'verify',source:'gopowersports-live'};found.set(url,product);gpsLiveProducts.set(id,product);}
+  }
+  return [...found.values()];
+}
+async function searchGoPowerSports(keywords,page=1) {
+  const params=new URLSearchParams({q:keywords}); if(page>1) params.set('page',String(page));
+  const target='https://www.gopowersports.com/search-results?'+params.toString();
+  const r=await fetch(target,{headers:{'User-Agent':'Mozilla/5.0 Predator224Lookup/2.0','Accept':'text/html,application/xhtml+xml'}});
+  if(!r.ok) throw new Error('GoPowerSports search failed: '+r.status);
+  const parts=parseGoPowerProducts(await r.text());
+  return {parts,page,hasMore:parts.length>0};
+}
+
 async function getParts(url) {
   const q=(url.searchParams.get('q')||'224 Predator').trim();
   const store=(url.searchParams.get('store')||'all').toLowerCase();
   const page=Math.max(1,Number(url.searchParams.get('page')||1));
-  const parts=[];
-  let nextPage=null;
+  const parts=[]; let nextPage=null;
   if (store==='nrracing'||store==='all') {
-    try {
-      const nr=await searchNrRacing(q,page);
-      parts.push(...nr.parts);
-      if(nr.hasMore) nextPage=page+1;
-    } catch(e) {
-      console.error('NR Racing:',e.message);
-    }
+    try { const nr=await searchNrRacing(q,page); parts.push(...nr.parts); if(nr.hasMore) nextPage=page+1; }
+    catch(e){ console.error('NR Racing:',e.message); }
   }
-  if (page===1 && (store==='gopowersports'||store==='all')) {
-    let gps=[...GOPWER];
-    if(q) {
-      const lq=q.toLowerCase();
-      gps=gps.filter(p=>(p.name+' '+p.category+' '+p.note).toLowerCase().includes(lq));
-    }
-    parts.push(...gps);
+  if (store==='gopowersports'||store==='all') {
+    try { const gps=await searchGoPowerSports(q,page); parts.push(...gps.parts); if(gps.hasMore) nextPage=page+1; }
+    catch(e){ console.error('GoPowerSports:',e.message); }
   }
-  return {parts,nextPage,query:q,live:store==='nrracing'||store==='all'};
+  return {parts,nextPage,query:q,live:['nrracing','gopowersports','all'].includes(store)};
 }
 
 const imageCache = new Map();
 const nrLiveProducts = new Map();
+const gpsLiveProducts = new Map();
 
 async function getCurrentProductImage(part) {
   const cached = imageCache.get(part.id);
@@ -232,13 +254,13 @@ const server=http.createServer(async (req,res)=>{
     const url=new URL(req.url,'http://localhost');
     if(url.pathname==='/api/health') return send(res,200,{ok:true,service:'predator-224-parts-library',amazonConfigured:Boolean(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)});
     if(url.pathname==='/api/parts') return send(res,200,{source:'server',...(await getParts(url))});
-    if(url.pathname==='/api/providers') return send(res,200,{providers:{GoPowerSports:{enabled:true,mode:'verified-catalog'},NRRacing:{enabled:true,mode:'live-public-search'},Amazon:{enabled:true,mode:(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)?'creators-api':'search-fallback'}}});
+    if(url.pathname==='/api/providers') return send(res,200,{providers:{GoPowerSports:{enabled:true,mode:'live-public-search'},NRRacing:{enabled:true,mode:'live-public-search'},Amazon:{enabled:true,mode:(process.env.AMAZON_CREATOR_CLIENT_ID&&process.env.AMAZON_CREATOR_CLIENT_SECRET&&process.env.AMAZON_PARTNER_TAG)?'creators-api':'search-fallback'}}});
     if(url.pathname==='/api/part-image') {
       const id=url.searchParams.get('id')||'';
-      const part=GOPWER.find(p=>p.id===id) || nrLiveProducts.get(id);
+      const part=GOPWER.find(p=>p.id===id) || nrLiveProducts.get(id) || gpsLiveProducts.get(id);
       if(!part) return send(res,404,'Image not found','text/plain');
       let image=null;
-      if(part.store==='GoPowerSports' && part.url) image=await getCurrentProductImage(part);
+      if((part.store==='GoPowerSports'||part.store==='NR Racing') && part.url) image=await getCurrentProductImage(part);
       else if(part.img) {
         try {
           const u=new URL(part.img);
