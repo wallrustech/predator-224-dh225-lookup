@@ -16,17 +16,17 @@ async function loadParts(){
 }
 function shopUrl(p){return p.url||(p.store==='Amazon'?'https://www.amazon.com/s?k='+encodeURIComponent(p.query):'https://www.gopowersports.com/?s='+encodeURIComponent(p.query)+'&post_type=product')}
 function filteredParts(){const c=$('#partCategory').value,s=$('#partStore').value,q=$('#partSearch').value.trim().toLowerCase();return PARTS.filter(p=>(c==='all'||p.category===c)&&(s==='all'||p.store===s)&&(!q||(p.name+' '+p.category+' '+p.note).toLowerCase().includes(q)))}
-function shuffle(a){return [...a].sort(()=>Math.random()-.5)}
+function shuffle(a){return [...a]}
 function renderParts(reset=true){
 const g=$('#partGrid');
 const filtered=filteredParts();
-if(reset){partOffset=0;partPool=shuffle(filtered);g.innerHTML=''}
+if(reset){partOffset=0;partPool=filtered;g.innerHTML=''}
 const next=partPool.slice(partOffset,partOffset+partBatch);partOffset+=next.length;
 if(reset&&next.length===0){g.innerHTML='<p class="muted">No catalog items match these filters.</p>'}
 if(next.length){g.insertAdjacentHTML('beforeend',next.map(p=>'<div class="part-card">'+(p.store==='GoPowerSports'&&p.url?'<img class="part-img" src="/api/part-image?id='+encodeURIComponent(p.id)+'" alt="'+p.name+'" loading="lazy">':(p.img?'<img class="part-img" src="'+p.img+'" alt="'+p.name+'" loading="lazy">':'<div class="part-placeholder">Product image unavailable</div>'))+'<h3>'+p.name+'</h3><div class="price">'+(p.price?'$'+p.price.toFixed(2):'See store')+'</div><div class="meta">'+p.store+' · '+p.category+'</div><p class="fit '+(p.fit==='verify'?'':'confirmed')+'">'+(p.fit==='verify'?'⚠ Customization option — verify fitment.':'✓ Confirmed-compatible catalog entry')+'</p><p>'+p.note+'</p><a class="storelink" href="'+shopUrl(p)+'" target="_blank" rel="noopener">View/search at '+p.store+'</a> <button data-add="'+p.id+'">Add to wishlist</button></div>').join(''));g.querySelectorAll('[data-add]').forEach(x=>x.onclick=()=>addWish(x.dataset.add))}
 const shown=Math.min(partOffset,partPool.length);$('#partCount').textContent=partPool.length?('Showing '+shown+' of '+partPool.length+' matching parts'):'';
 }
-function cycleParts(){const b=$('#refreshParts');b.classList.add('refresh-spin');setTimeout(()=>b.classList.remove('refresh-spin'),450);renderParts(true)}
+async function cycleParts(){const b=$('#refreshParts');b.classList.add('refresh-spin');try{await loadParts()}finally{setTimeout(()=>b.classList.remove('refresh-spin'),450)}}
 function loadMoreParts(){if(partOffset<partPool.length)renderParts(false)}
 function getWish(){try{return JSON.parse(localStorage.getItem('dh225wishlist')||'[]')}catch(e){return[]}}
 function saveWish(w){localStorage.setItem('dh225wishlist',JSON.stringify(w));renderWish()}
