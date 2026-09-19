@@ -136,7 +136,7 @@ function parseNrProducts(html) {
     const img=imgMatch?absoluteUrl(imgMatch[1]):'';
     const id='nr-'+Buffer.from(url).toString('base64url').slice(0,32);
     if (!found.has(url)) {
-      const product={id,name,category:'NR Racing',store:'NR Racing',price,note:'Live NR Racing catalog result. Verify Predator 224 fitment, dimensions and application before ordering.',url,img,fit:'verify',source:'nr-racing'};
+      const product={id,name,category:classifyLiveCategory(name,url),store:'NR Racing',price,note:'Live NR Racing catalog result. Verify Predator 224 fitment, dimensions and application before ordering.',url,img,fit:'verify',source:'nr-racing'};
       found.set(url,product);
       nrLiveProducts.set(id,product);
     }
@@ -152,6 +152,24 @@ async function searchNrRacing(keywords,page=1) {
   const html=await r.text();
   const parts=parseNrProducts(html);
   return {parts,page,hasMore:parts.length>0};
+}
+
+function classifyLiveCategory(name,url='') {
+  const t=(name+' '+url).toLowerCase();
+  if(/carb|jet|fuel.*mixture/.test(t)) return 'carburetion';
+  if(/manifold|intake|air filter|air cleaner/.test(t)) return 'intake';
+  if(/cam|flywheel|connecting rod|piston|valve|billet|performance|stage [0-9]|rocker|side cover/.test(t)) return 'performance';
+  if(/throttle|handlebar|grip|kill switch|clevis/.test(t)) return 'controls';
+  if(/headlight|light|led/.test(t)) return 'lighting';
+  if(/tach|speedometer|gauge/.test(t)) return 'gauges';
+  if(/seat/.test(t)) return 'seating';
+  if(/fender|foot peg|kick stand|frame|chain guard/.test(t)) return 'chassis';
+  if(/brake|caliper|rotor/.test(t)) return 'brakes';
+  if(/torque converter|clutch|sprocket|chain|belt|drive/.test(t)) return 'drivetrain';
+  if(/wheel|tire/.test(t)) return 'wheels';
+  if(/tank|fuel line|fuel valve/.test(t)) return 'fuel';
+  if(/spark plug|flywheel key|tachometer|service|gasket/.test(t)) return 'service';
+  return 'other';
 }
 
 function parseGoPowerProducts(html) {
@@ -172,7 +190,7 @@ function parseGoPowerProducts(html) {
     const imgMatch=windowText.match(/<img[^>]+(?:src|data-src|data-srcset)=["']([^"']+)["'][^>]*>/i);
     const img=imgMatch?absoluteUrl(imgMatch[1].split(',')[0].trim().split(/\s+/)[0]):'';
     const id='gps-live-'+Buffer.from(url).toString('base64url').slice(0,32);
-    if(!found.has(url)){const product={id,name,category:'GoPowerSports',store:'GoPowerSports',price:Number(priceMatch[1].replace(/,/g,'')),note:'Live GoPowerSports catalog result. Verify Predator 224 fitment, dimensions and application before ordering.',url,img,fit:'verify',source:'gopowersports-live'};found.set(url,product);gpsLiveProducts.set(id,product);}
+    if(!found.has(url)){const product={id,name,category:classifyLiveCategory(name,url),store:'GoPowerSports',price:Number(priceMatch[1].replace(/,/g,'')),note:'Live GoPowerSports catalog result. Verify Predator 224 fitment, dimensions and application before ordering.',url,img,fit:'verify',source:'gopowersports-live'};found.set(url,product);gpsLiveProducts.set(id,product);}
   }
   return [...found.values()];
 }
@@ -209,7 +227,7 @@ async function getCurrentProductImage(part) {
   const cached = imageCache.get(part.id);
   if (cached && cached.expires > Date.now()) return cached;
 
-  let imageUrl = '';
+  let imageUrl = part.img || '';
   try {
     const page = await fetch(part.url, {headers:{'User-Agent':'Mozilla/5.0 Predator224Lookup/2.0'}});
     if (page.ok) {
@@ -224,7 +242,6 @@ async function getCurrentProductImage(part) {
     console.error('Product image lookup failed:', part.id, e.message);
   }
 
-  if (!imageUrl) imageUrl = part.img || '';
   if (!imageUrl) return null;
 
   try {
